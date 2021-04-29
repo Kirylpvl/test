@@ -1,0 +1,103 @@
+FROM debian:buster-slim						#задали базовый образ
+LABEL maintainer = "Gabriel Xavier | gabrielxavier.com"		#метаданные создателя образа
+
+ENV DEBIAN_FRONTEND="noninteractive"				#устанавливаем постоянные переменные окружения
+ENV TZ=America/Sao_Paulo
+ENV SITE_PATH=/var/www/html/
+
+ARG PHP_VER=7.4							#задает переменную, значение которой будет передавться во время собрки контейнера,
+								в данном случае версия PHP 7.4
+
+RUN set -ex; \							#установка всеx нижеперечисленных пакетов с учетом переменных окружения (только для PHP)
+    AptInstall=" \
+        git \
+        nginx \
+        openssl \
+        postfix \
+        unzip \
+        vim \
+        zip \
+    "; \
+    PHPInstall=" \
+        php${PHP_VER} \
+        php${PHP_VER}-bcmath \
+        php${PHP_VER}-bz2 \
+        php${PHP_VER}-cgi \
+        php${PHP_VER}-cli \
+        php${PHP_VER}-common \
+        php${PHP_VER}-curl \
+        php${PHP_VER}-dba \
+        php${PHP_VER}-dom \
+        php${PHP_VER}-enchant \
+        php${PHP_VER}-fpm \
+        php${PHP_VER}-gd \
+        php${PHP_VER}-gmp \
+        php${PHP_VER}-iconv \
+        php${PHP_VER}-interbase \
+        php${PHP_VER}-intl \
+        php${PHP_VER}-json \
+        php${PHP_VER}-mbstring \
+        php${PHP_VER}-memcached \
+        php${PHP_VER}-mysql \
+        php${PHP_VER}-odbc \
+        php${PHP_VER}-opcache \
+        php${PHP_VER}-pdo \
+        php${PHP_VER}-pgsql \
+        php${PHP_VER}-phar \
+        php${PHP_VER}-pspell \
+        php${PHP_VER}-readline \
+        php${PHP_VER}-redis \
+        php${PHP_VER}-soap \
+        php${PHP_VER}-sqlite3 \
+        php${PHP_VER}-tidy \
+        php${PHP_VER}-xml \
+        php${PHP_VER}-xsl \
+        php${PHP_VER}-zip \
+    "; \
+    BuildDeps=" \						#установка дополнительных утилит
+        apt-transport-https \
+        ca-certificates \
+        curl \
+        procps \
+        supervisor \
+        tzdata \
+        wget \
+    "; \
+    TempBuildDeps=" \						#установка утилит для сборки контейнера, потом их удалим							
+        apt-utils \
+        dirmngr \
+        gnupg \
+        software-properties-common \
+    "; \
+    apt update; \						#обновление пакетов из BuildDeps и TempBuildDeps
+    apt install --no-install-recommends -qy $BuildDeps $TempBuildDeps; \ #установка пакетов из BuildDeps и TempBuildDeps
+    wget -q https://packages.sury.org/php/apt.gpg -O- | apt-key add -; \ #скачивает какой-то ключ для php
+    echo "deb https://packages.sury.org/php/ $(lsb_release -cs) main" >> /etc/apt/sources.list.d/php.list; \ #выводит сообщение и дописывает его в файл
+    wget http://nginx.org/keys/nginx_signing.key; apt-key add nginx_signing.key; \ #скачивает ключ для nginx
+    echo "deb http://nginx.org/packages/debian/ $(lsb_release -cs) nginx" >> /etc/apt/sources.list.d/nginx.list; \ #выводит сообщение и дописывает его в файл
+    apt update -q; apt install --no-install-recommends -qy $PHPInstall $AptInstall; \ #установка программ описанных выше
+    \
+    mkdir -p /var/log/supervisor; mkdir /run/php; \  #создание директорий
+    ln -s /usr/sbin/php-fpm${PHP_VER} /usr/sbin/php-fpm; \ #создает ссылку на файл
+    cp /usr/share/zoneinfo/${TZ} /etc/localtime; echo "${TZ}" > /etc/timezone; \ #установка часового пояса
+    curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer; \ #скачиваем composer и при помощи php устанвливаем его в выбранную директорию
+    \
+    apt-get clean; rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*; \  #удаляем содержимое в выбранных директорич
+    apt-get purge -y --auto-remove $TempBuildDeps # удалям утилиты  и пакеты в которых нет больше необходимсоти
+
+WORKDIR ${SITE_PATH}								#изменяем рабочую директорию контейнера
+
+COPY ./webcode/ ${SITE_PATH}							#копируем файлы с локалки и добаляем в образ
+COPY ./config/php.ini /etc/php/${PHP_VER}/fpm/conf.d/zzz-custom.ini
+COPY ./config/php-fpm.conf /etc/php/${PHP_VER}/fpm/pool.d/zzz-custom.conf
+COPY ./config/nginx-main.conf /etc/nginx/nginx.conf
+COPY ./config/nginx-site.conf /etc/nginx/conf.d/default.conf
+COPY ./config/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
+RUN chown -R nginx:nginx ${SITE_PATH}; \					#прописываем права
+    find ${SITE_PATH} -type d -exec chmod 755 {} \; && \
+    find ${SITE_PATH} -type f -exec chmod 644 {} \;
+
+EXPOSE 80									#открываем 80 порт
+
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]  #когда контейнер запуститься стартанет supervisord
