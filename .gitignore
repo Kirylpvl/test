@@ -1,5 +1,5 @@
-*.txt
+#*.txt
 
-/ignore/*_temp
+#/ignore/*_temp
  
-/ignore/test_file.*
+#/ignore/test_file.*
