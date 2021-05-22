@@ -1,2 +1,5 @@
 *.txt
 
+/ignore/*_temp
+ 
+/ignore/test_files.*
